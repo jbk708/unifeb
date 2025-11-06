@@ -77,7 +77,7 @@ dependencies = [
 [[package]]
 name = "anndists"
 version = "0.1.2"
-source = "git+https://github.com/Sam-Shebin/anndists.git?rev=c3aad712#c3aad712716b43da3cacd936b174986f036e0612"
+source = "git+https://github.com/jbk708/anndists.git?rev=c3aad712#c3aad712716b43da3cacd936b174986f036e0612"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -97,30 +97,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "anndists"
-version = "0.1.2"
-source = "git+https://github.com/Sam-Shebin/anndists.git#c3aad712716b43da3cacd936b174986f036e0612"
-dependencies = [
- "anyhow",
- "bitvec",
- "cfg-if 1.0.0",
- "cpu-time",
- "env_logger 0.10.2",
- "lazy_static 1.5.0",
- "log",
- "newick",
- "num-traits 0.2.19",
- "num_cpus",
- "phylotree",
- "rand 0.8.5",
- "rayon",
- "succparen",
-]
-
-[[package]]
 name = "annembed"
 version = "0.1.5"
-source = "git+https://github.com/jianshu93/annembed#6327ee8d1692f7cc09aad7fcd416ae13d29b449c"
+source = "git+https://github.com/jbk708/annembed.git?rev=6327ee8d#6327ee8d1692f7cc09aad7fcd416ae13d29b449c"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -1032,9 +1011,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hnsw_rs"
 version = "0.3.2"
-source = "git+https://github.com/jianshu93/hnswlib-rs?rev=97dcc91a2772b6371159eb010b6fed9f460df879#97dcc91a2772b6371159eb010b6fed9f460df879"
+source = "git+https://github.com/jbk708/hnswlib-rs.git?rev=e21bb25#e21bb25641c5aaeaa1e9c25bc07b8f82d1c4e173"
 dependencies = [
- "anndists 0.1.2 (git+https://github.com/Sam-Shebin/anndists.git?rev=c3aad712)",
+ "anndists",
  "anyhow",
  "bincode 1.3.3",
  "cfg-if 1.0.0",
@@ -2710,7 +2689,7 @@ checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
 name = "unifeb"
 version = "0.1.1"
 dependencies = [
- "anndists 0.1.2 (git+https://github.com/Sam-Shebin/anndists.git)",
+ "anndists",
  "annembed",
  "anyhow",
  "clap",
