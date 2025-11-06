@@ -16,15 +16,10 @@ env_logger = { version = "0.11" }
 anndists = { git = "https://github.com/jbk708/anndists.git", branch = "cleanup" }
 anyhow = { version = "1.0.58" }
 csv = { version = "1.1" }
-annembed = { git = "https://github.com/jbk708/annembed.git", rev = "6327ee8d", default-features = false, features = ["simdeez_f", "intel-mkl-static"] }
-#hnsw_rs = {git = "https://github.com/jean-pierreBoth/hnswlib-rs", features = ["simdeez_f"]}
-#hnsw_rs = {path = "../hnswlib-rs-new", features = ["simdeez_f"]}
-#hnsw_rs = { git = "https://github.com/jianshu93/hnswlib-rs", rev = "97dcc91a2772b6371159eb010b6fed9f460df879", features = ["simdeez_f"] }
-#hnsw_rs = { path = "../hnswlib-rs", features = ["simdeez_f"] }
-
-hnsw_rs = { git = "https://github.com/jbk708/hnswlib-rs.git", rev = "e21bb25", features = ["simdeez_f"] }
+annembed = { git = "https://github.com/jbk708/annembed.git", branch = "master", default-features = false, features = ["simdeez_f", "intel-mkl-static"] }
+hnsw_rs = { git = "https://github.com/jbk708/hnswlib-rs.git", branch = "master", features = ["simdeez_f"] }
 
 [patch.crates-io]
 # Ensure any dependency asking for hnsw_rs (crates.io) uses the user's git fork
-hnsw_rs = { git = "https://github.com/jbk708/hnswlib-rs.git", rev = "e21bb25" }
+hnsw_rs = { git = "https://github.com/jbk708/hnswlib-rs.git", branch = "master" }
 

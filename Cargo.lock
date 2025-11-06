@@ -77,7 +77,7 @@ dependencies = [
 [[package]]
 name = "anndists"
 version = "0.1.2"
-source = "git+https://github.com/jbk708/anndists.git?rev=c3aad712#c3aad712716b43da3cacd936b174986f036e0612"
+source = "git+https://github.com/jbk708/anndists.git?branch=cleanup#e1e405f06108e7c5f24752bc1c34b867e81bffa4"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -99,7 +99,7 @@ dependencies = [
 [[package]]
 name = "annembed"
 version = "0.1.5"
-source = "git+https://github.com/jbk708/annembed.git?rev=6327ee8d#6327ee8d1692f7cc09aad7fcd416ae13d29b449c"
+source = "git+https://github.com/jbk708/annembed.git?branch=master#9f651639c0ab02b11176a91e4c3f923a719b02f4"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -1011,7 +1011,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hnsw_rs"
 version = "0.3.2"
-source = "git+https://github.com/jbk708/hnswlib-rs.git?rev=e21bb25#e21bb25641c5aaeaa1e9c25bc07b8f82d1c4e173"
+source = "git+https://github.com/jbk708/hnswlib-rs.git?branch=master#689000994af483981b39e6f0b5e1182e04293f5a"
 dependencies = [
  "anndists",
  "anyhow",
