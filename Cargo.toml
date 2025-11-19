@@ -9,17 +9,34 @@ git-fetch-with-cli = true
 
 [dependencies]
 rayon = "1.10"
-ndarray = "0.16"
+ndarray = "0.17"
 clap = "4.3"
 log = { version = "0.4" }
 env_logger = { version = "0.11" }
-anndists = { git = "https://github.com/jbk708/anndists.git", branch = "cleanup" }
+anndists = { git = "https://github.com/jbk708/anndists.git", branch = "master" }
 anyhow = { version = "1.0.58" }
 csv = { version = "1.1" }
-annembed = { git = "https://github.com/jbk708/annembed.git", branch = "master", default-features = false, features = ["simdeez_f", "intel-mkl-static"] }
+
+# Base annembed dependency (required for dependency resolution)
+# Platform-specific BLAS features are added below
+annembed = { git = "https://github.com/jbk708/annembed.git", branch = "master", default-features = false, features = ["simdeez_f"] }
+
+# hnsw_rs must be declared before platform-specific dependencies for proper resolution
+# Use GitHub repository dependency
 hnsw_rs = { git = "https://github.com/jbk708/hnswlib-rs.git", branch = "master", features = ["simdeez_f"] }
 
+# Platform-specific BLAS backend selection
+# On macOS (especially ARM64), use Accelerate framework instead of Intel MKL
+# Note: This adds the macos-accelerate feature to the base annembed dependency
+[target.'cfg(target_os = "macos")'.dependencies]
+annembed = { git = "https://github.com/jbk708/annembed.git", branch = "master", default-features = false, features = ["simdeez_f", "macos-accelerate"] }
+
+# On Linux/Windows x86_64, use Intel MKL
+[target.'cfg(all(any(target_os = "linux", target_os = "windows"), target_arch = "x86_64"))'.dependencies]
+annembed = { git = "https://github.com/jbk708/annembed.git", branch = "master", default-features = false, features = ["simdeez_f", "intel-mkl-static"] }
+
 [patch.crates-io]
-# Ensure any dependency asking for hnsw_rs (crates.io) uses the user's git fork
+# Ensure any dependency asking for hnsw_rs (crates.io) uses the GitHub repository
 hnsw_rs = { git = "https://github.com/jbk708/hnswlib-rs.git", branch = "master" }
+
 
