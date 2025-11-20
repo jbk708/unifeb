@@ -639,6 +639,7 @@ mod tests {
         let nb_layer = 2;
 
         // Build HNSW graphs with both distance metrics
+        #[allow(unused_mut)]
         let mut hnsw_weighted = Hnsw::<f32, NewDistUniFrac>::new(
             hparams.max_conn,
             data_with_id.len(),
@@ -648,6 +649,7 @@ mod tests {
         );
         hnsw_weighted.parallel_insert(&data_with_id);
 
+        #[allow(unused_mut)]
         let mut hnsw_unweighted = Hnsw::<f32, NewDistUniFrac>::new(
             hparams.max_conn,
             data_with_id.len(),
@@ -699,6 +701,7 @@ mod tests {
         let nb_layer = 2;
 
         // Build HNSW graph - should succeed
+        #[allow(unused_mut)]
         let mut hnsw = Hnsw::<f32, NewDistUniFrac>::new(
             hparams.max_conn,
             data_with_id.len(),
@@ -742,6 +745,7 @@ mod tests {
         let nb_layer = 2;
 
         // Build HNSW graph - should succeed
+        #[allow(unused_mut)]
         let mut hnsw = Hnsw::<f32, NewDistUniFrac>::new(
             hparams.max_conn,
             data_with_id.len(),
