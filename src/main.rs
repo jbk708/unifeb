@@ -28,10 +28,7 @@ use std::io::{BufRead, BufReader};
 
 use anyhow::{anyhow, Result};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use env_logger;
-use log;
 use ndarray::Array2;
-use csv;
 use hnsw_rs::prelude::*; // For Hnsw
 
 // *** Import DistUniFrac
@@ -54,8 +51,8 @@ pub struct HnswParams {
     pub scale_modification: f64,
 }
 
-impl HnswParams {
-    pub fn default() -> Self {
+impl Default for HnswParams {
+    fn default() -> Self {
         HnswParams {
             max_conn: 48,
             ef_c: 400,
@@ -70,12 +67,12 @@ impl HnswParams {
 //
 fn parse_hnsw_cmd(matches: &ArgMatches) -> Result<HnswParams, anyhow::Error> {
     log::debug!("in parse_hnsw_cmd");
-    let mut hparams = HnswParams::default();
-
-    hparams.max_conn = *matches.get_one::<usize>("nbconn").unwrap();
-    hparams.ef_c = *matches.get_one::<usize>("ef").unwrap();
-    hparams.knbn = *matches.get_one::<usize>("knbn").unwrap();
-    hparams.scale_modification = *matches.get_one::<f64>("scale_modification").unwrap();
+    let hparams = HnswParams {
+        max_conn: *matches.get_one::<usize>("nbconn").unwrap(),
+        ef_c: *matches.get_one::<usize>("ef").unwrap(),
+        knbn: *matches.get_one::<usize>("knbn").unwrap(),
+        scale_modification: *matches.get_one::<f64>("scale_modification").unwrap(),
+    };
 
     Ok(hparams)
 }
@@ -142,8 +139,7 @@ fn get_kgraph_unifrac(
     hnsw.dump_layer_info();
 
     // Convert HNSW to a KGraph
-    let kgraph = kgraph_from_hnsw_all(&hnsw, hparams.knbn).unwrap();
-    kgraph
+    kgraph_from_hnsw_all(&hnsw, hparams.knbn).unwrap()
 }
 
 // Hierarchical approach
@@ -202,7 +198,9 @@ fn write_csv_array2(
 //
 //  DistUniFrac needs feature_names in the same order as the dimension indices in the sample vectors.
 //
-fn parse_feature_table(filename: &str) -> Result<(Vec<String>, Vec<String>, Vec<Vec<f32>>)> {
+type FeatureTableResult = (Vec<String>, Vec<String>, Vec<Vec<f32>>);
+
+fn parse_feature_table(filename: &str) -> Result<FeatureTableResult> {
     let f = File::open(filename)
         .map_err(|_| anyhow!("Cannot open featuretable file: {}", filename))?;
     let mut lines = BufReader::new(f).lines();
@@ -428,7 +426,7 @@ fn main() -> Result<()> {
 
     // We'll embed S samples => each row of `matrix` is a sample vector
     // data_with_id => ( &Vec<f32>, sample_id )
-    let data_with_id: Vec<(&Vec<f32>, usize)> = matrix.iter().zip(0..matrix.len()).collect();
+    let data_with_id: Vec<(&Vec<f32>, usize)> = matrix.iter().enumerate().map(|(i, v)| (v, i)).collect();
 
     // recommended #layers for HNSW
     let nb_data = data_with_id.len();
