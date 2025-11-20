@@ -28,19 +28,16 @@ use std::io::{BufRead, BufReader};
 
 use anyhow::{anyhow, Result};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use env_logger;
-use log;
-use ndarray::Array2;
-use csv;
-use hnsw_rs::prelude::*; // For Hnsw
+use hnsw_rs::prelude::*;
+use ndarray::Array2; // For Hnsw
 
 // *** Import DistUniFrac
 //use anndists::dist::DistUniFrac; // commented out per change to use NewDistUniFrac
 use anndists::dist::distances::NewDistUniFrac;
 
 // annembed
-use annembed::fromhnsw::kgraph::{kgraph_from_hnsw_all, KGraph};
 use annembed::fromhnsw::kgproj::KGraphProjection;
+use annembed::fromhnsw::kgraph::{kgraph_from_hnsw_all, KGraph};
 use annembed::prelude::{Embedder, EmbedderParams};
 
 //
@@ -54,13 +51,13 @@ pub struct HnswParams {
     pub scale_modification: f64,
 }
 
-impl HnswParams {
-    pub fn default() -> Self {
+impl Default for HnswParams {
+    fn default() -> Self {
         HnswParams {
             max_conn: 48,
             ef_c: 400,
             knbn: 10,
-            scale_modification: 0.25
+            scale_modification: 0.25,
         }
     }
 }
@@ -70,12 +67,12 @@ impl HnswParams {
 //
 fn parse_hnsw_cmd(matches: &ArgMatches) -> Result<HnswParams, anyhow::Error> {
     log::debug!("in parse_hnsw_cmd");
-    let mut hparams = HnswParams::default();
-
-    hparams.max_conn = *matches.get_one::<usize>("nbconn").unwrap();
-    hparams.ef_c = *matches.get_one::<usize>("ef").unwrap();
-    hparams.knbn = *matches.get_one::<usize>("knbn").unwrap();
-    hparams.scale_modification = *matches.get_one::<f64>("scale_modification").unwrap();
+    let hparams = HnswParams {
+        max_conn: *matches.get_one::<usize>("nbconn").unwrap(),
+        ef_c: *matches.get_one::<usize>("ef").unwrap(),
+        knbn: *matches.get_one::<usize>("knbn").unwrap(),
+        scale_modification: *matches.get_one::<f64>("scale_modification").unwrap(),
+    };
 
     Ok(hparams)
 }
@@ -142,8 +139,7 @@ fn get_kgraph_unifrac(
     hnsw.dump_layer_info();
 
     // Convert HNSW to a KGraph
-    let kgraph = kgraph_from_hnsw_all(&hnsw, hparams.knbn).unwrap();
-    kgraph
+    kgraph_from_hnsw_all(&hnsw, hparams.knbn).unwrap()
 }
 
 // Hierarchical approach
@@ -174,7 +170,7 @@ fn get_kgraphproj_unifrac(
 // Just a little helper to write the final embedded coordinates to a CSV file.
 fn write_csv_array2(
     w: &mut csv::Writer<std::fs::File>,
-    array2: &Array2<f32>,  // changed to f32
+    array2: &Array2<f32>, // changed to f32
 ) -> Result<(), anyhow::Error> {
     for row in array2.outer_iter() {
         let float_vec: Vec<f32> = row.to_vec();
@@ -202,9 +198,11 @@ fn write_csv_array2(
 //
 //  DistUniFrac needs feature_names in the same order as the dimension indices in the sample vectors.
 //
-fn parse_feature_table(filename: &str) -> Result<(Vec<String>, Vec<String>, Vec<Vec<f32>>)> {
-    let f = File::open(filename)
-        .map_err(|_| anyhow!("Cannot open featuretable file: {}", filename))?;
+type FeatureTableResult = (Vec<String>, Vec<String>, Vec<Vec<f32>>);
+
+fn parse_feature_table(filename: &str) -> Result<FeatureTableResult> {
+    let f =
+        File::open(filename).map_err(|_| anyhow!("Cannot open featuretable file: {}", filename))?;
     let mut lines = BufReader::new(f).lines();
 
     // First line => sample names
@@ -293,13 +291,14 @@ fn main() -> Result<()> {
                 .value_parser(clap::value_parser!(usize))
                 .help("Search factor for HNSW construction"),
         )
-        .arg(Arg::new("scale_modification")
-            .long("scale_modify_f")
-            .help("scale modification factor in HNSW or HubNSW, must be in [0.2,1]")
-            .value_name("scale_modify")
-            .default_value("0.25")
-            .action(ArgAction::Set)
-            .value_parser(clap::value_parser!(f64))
+        .arg(
+            Arg::new("scale_modification")
+                .long("scale_modify_f")
+                .help("scale modification factor in HNSW or HubNSW, must be in [0.2,1]")
+                .value_name("scale_modify")
+                .default_value("0.25")
+                .action(ArgAction::Set)
+                .value_parser(clap::value_parser!(f64)),
         );
 
     // Top-level clap config
@@ -428,7 +427,8 @@ fn main() -> Result<()> {
 
     // We'll embed S samples => each row of `matrix` is a sample vector
     // data_with_id => ( &Vec<f32>, sample_id )
-    let data_with_id: Vec<(&Vec<f32>, usize)> = matrix.iter().zip(0..matrix.len()).collect();
+    let data_with_id: Vec<(&Vec<f32>, usize)> =
+        matrix.iter().enumerate().map(|(i, v)| (v, i)).collect();
 
     // recommended #layers for HNSW
     let nb_data = data_with_id.len();
@@ -454,15 +454,23 @@ fn main() -> Result<()> {
         csv_w.flush().unwrap();
 
         if let Some(q) = maybe_quality {
-            log::info!("quality sampling fraction requested: {:.4}", q.sampling_fraction);
+            log::info!(
+                "quality sampling fraction requested: {:.4}",
+                q.sampling_fraction
+            );
             let _quality_est = embedder.get_quality_estimate_from_edge_length(100);
             // Possibly print or store _quality_est
         }
     } else {
         // hierarchical approach
         let layer_proj = embedparams.get_hierarchy_layer();
-        let graphproj =
-            get_kgraphproj_unifrac(&data_with_id, dist_unifrac, &hnswparams, nb_layer, layer_proj);
+        let graphproj = get_kgraphproj_unifrac(
+            &data_with_id,
+            dist_unifrac,
+            &hnswparams,
+            nb_layer,
+            layer_proj,
+        );
 
         let mut embedder = Embedder::from_hkgraph(&graphproj, embedparams);
         let embed_res = embedder.embed();
@@ -476,7 +484,10 @@ fn main() -> Result<()> {
         csv_w.flush().unwrap();
 
         if let Some(q) = maybe_quality {
-            log::info!("quality sampling fraction requested (hierarchical): {:.4}", q.sampling_fraction);
+            log::info!(
+                "quality sampling fraction requested (hierarchical): {:.4}",
+                q.sampling_fraction
+            );
             let _quality_est = embedder.get_quality_estimate_from_edge_length(100);
         }
     }
