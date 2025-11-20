@@ -39,4 +39,7 @@ annembed = { git = "https://github.com/jbk708/annembed.git", branch = "master", 
 # Ensure any dependency asking for hnsw_rs (crates.io) uses the GitHub repository
 hnsw_rs = { git = "https://github.com/jbk708/hnswlib-rs.git", branch = "master" }
 
+[dev-dependencies]
+tempfile = "3.8"
+
 
