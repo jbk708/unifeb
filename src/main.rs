@@ -25,6 +25,7 @@
 // HashMap import removed (unused)
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -124,6 +125,11 @@ fn get_kgraph_unifrac(
     nb_layer: usize,
 ) -> KGraph<f32> {
     let nb_data = data_with_id.len();
+    log::debug!(
+        "Building HNSW graph for {} samples with {} layers",
+        nb_data,
+        nb_layer
+    );
 
     // Build HNSW
     let mut hnsw = Hnsw::<f32, NewDistUniFrac>::new(
@@ -135,10 +141,16 @@ fn get_kgraph_unifrac(
     );
     hnsw.modify_level_scale(hparams.scale_modification);
     // Insert data
+    log::debug!("Inserting {} samples into HNSW graph...", nb_data);
     hnsw.parallel_insert(data_with_id);
     hnsw.dump_layer_info();
+    log::debug!("HNSW graph construction completed");
 
     // Convert HNSW to a KGraph
+    log::debug!(
+        "Converting HNSW to KGraph (keeping {} neighbors per node)...",
+        hparams.knbn
+    );
     kgraph_from_hnsw_all(&hnsw, hparams.knbn).unwrap()
 }
 
@@ -151,6 +163,11 @@ fn get_kgraphproj_unifrac(
     layer_proj: usize,
 ) -> KGraphProjection<f32> {
     let nb_data = data_with_id.len();
+    log::debug!(
+        "Building hierarchical HNSW graph for {} samples (projection layer: {})",
+        nb_data,
+        layer_proj
+    );
     // Build HNSW
     let mut hnsw = Hnsw::<f32, NewDistUniFrac>::new(
         hparams.max_conn,
@@ -160,8 +177,13 @@ fn get_kgraphproj_unifrac(
         dist_unifrac,
     );
     hnsw.modify_level_scale(hparams.scale_modification);
+    log::debug!(
+        "Inserting {} samples into hierarchical HNSW graph...",
+        nb_data
+    );
     hnsw.parallel_insert(data_with_id);
     hnsw.dump_layer_info();
+    log::debug!("Building KGraphProjection at layer {}", layer_proj);
 
     // Build a KGraphProjection for hierarchical embedding
     KGraphProjection::<f32>::new(&hnsw, hparams.knbn, layer_proj)
@@ -201,6 +223,7 @@ fn write_csv_array2(
 type FeatureTableResult = (Vec<String>, Vec<String>, Vec<Vec<f32>>);
 
 fn parse_feature_table(filename: &str) -> Result<FeatureTableResult> {
+    log::debug!("Parsing feature table from: {}", filename);
     let f =
         File::open(filename).map_err(|_| anyhow!("Cannot open featuretable file: {}", filename))?;
     let mut lines = BufReader::new(f).lines();
@@ -253,6 +276,11 @@ fn parse_feature_table(filename: &str) -> Result<FeatureTableResult> {
     }
     // matrix[sample_index][feature_index]
 
+    log::debug!(
+        "Parsed feature table: {} samples, {} features",
+        sample_names.len(),
+        feature_names.len()
+    );
     Ok((sample_names, feature_names, matrix))
 }
 
@@ -261,8 +289,13 @@ fn parse_feature_table(filename: &str) -> Result<FeatureTableResult> {
 //
 fn main() -> Result<()> {
     // Initialize logger
-    println!("\n ************** initializing logger *****************\n");
     env_logger::Builder::from_default_env().init();
+
+    // Record start time
+    let start_time = Instant::now();
+    log::info!("========================================");
+    log::info!("UniFrac Embedding (unifeb) starting");
+    log::info!("========================================");
 
     // Define the hnsw subcommand
     let hnswcmd = Command::new("hnsw")
@@ -406,24 +439,59 @@ fn main() -> Result<()> {
     } else {
         HnswParams::default()
     };
-    log::debug!("hnswparams: {:?}", hnswparams);
+    log::info!(
+        "HNSW parameters: max_conn={}, ef_c={}, knbn={}, scale_modification={:.3}",
+        hnswparams.max_conn,
+        hnswparams.ef_c,
+        hnswparams.knbn,
+        hnswparams.scale_modification
+    );
 
     // parse embedding params
     let (embedparams, maybe_quality) = parse_embed_group(&matches)?;
+    log::info!(
+        "Embedding parameters: dim={}, batch={}, nbsample={}, scale={:.3}, hierarchy_layer={}",
+        embedparams.asked_dim,
+        embedparams.nb_grad_batch,
+        embedparams.nb_sampling_by_edge,
+        embedparams.scale_rho,
+        embedparams.hierarchy_layer
+    );
 
     // read newick tree from file
+    let tree_start = Instant::now();
     let newick_filename = matches.get_one::<String>("tree").unwrap();
+    log::info!("Reading phylogenetic tree from: {}", newick_filename);
     let newick_str = std::fs::read_to_string(newick_filename)
         .map_err(|e| anyhow!("Could not read newick file {}: {}", newick_filename, e))?;
+    let tree_elapsed = tree_start.elapsed();
+    log::info!(
+        "Tree file read successfully in {:.2}s",
+        tree_elapsed.as_secs_f64()
+    );
 
     // read feature table
+    let table_start = Instant::now();
     let feature_filename = matches.get_one::<String>("featuretable").unwrap();
-    let (_sample_names, feature_names, matrix) = parse_feature_table(feature_filename)?;
+    log::info!("Reading feature table from: {}", feature_filename);
+    let (sample_names, feature_names, matrix) = parse_feature_table(feature_filename)?;
+    let table_elapsed = table_start.elapsed();
+    let nsamples = sample_names.len();
+    let nfeatures = feature_names.len();
+    log::info!(
+        "Feature table read successfully in {:.2}s ({} samples, {} features)",
+        table_elapsed.as_secs_f64(),
+        nsamples,
+        nfeatures
+    );
 
     // build DistUniFrac
     let weighted = matches.get_flag("weighted");
+    let unifrac_type = if weighted { "weighted" } else { "unweighted" };
+    log::info!("Building {} UniFrac distance calculator", unifrac_type);
     // feature_names is the "dimension list" in the same order we used in matrix columns
     let dist_unifrac = NewDistUniFrac::new(&newick_str, weighted, feature_names.clone())?;
+    log::info!("UniFrac distance calculator initialized");
 
     // We'll embed S samples => each row of `matrix` is a sample vector
     // data_with_id => ( &Vec<f32>, sample_id )
@@ -433,29 +501,61 @@ fn main() -> Result<()> {
     // recommended #layers for HNSW
     let nb_data = data_with_id.len();
     let nb_layer = 16.min((nb_data as f32).ln().trunc() as usize);
+    log::info!(
+        "Prepared {} samples for embedding (HNSW layers: {})",
+        nb_data,
+        nb_layer
+    );
 
     // Output
     let outfile = matches.get_one::<String>("outfile").unwrap();
-    let mut csv_w = csv::Writer::from_path(outfile).unwrap();
+    log::info!("Output file: {}", outfile);
 
     // If not hierarchical, we do the standard approach
     if embedparams.get_hierarchy_layer() == 0 {
-        let kgraph = get_kgraph_unifrac(&data_with_id, dist_unifrac, &hnswparams, nb_layer);
+        log::info!("Using standard embedding approach");
 
+        // Build HNSW graph
+        let graph_start = Instant::now();
+        log::info!("Building HNSW graph...");
+        let kgraph = get_kgraph_unifrac(&data_with_id, dist_unifrac, &hnswparams, nb_layer);
+        let graph_elapsed = graph_start.elapsed();
+        log::info!(
+            "HNSW graph built successfully in {:.2}s ({} nodes)",
+            graph_elapsed.as_secs_f64(),
+            kgraph.get_nb_nodes()
+        );
+
+        // Perform embedding
+        let embed_start = Instant::now();
+        log::info!("Starting embedding process...");
         let mut embedder = Embedder::new(&kgraph, embedparams);
         let embed_res = embedder.embed();
         if embed_res.is_err() {
-            log::error!("embedding failed");
+            log::error!("Embedding failed");
             std::process::exit(1);
         }
-        //
-        // we can use get_embedded_reindexed as we indexed DataId contiguously in hnsw!
+        let embed_elapsed = embed_start.elapsed();
+        log::info!(
+            "Embedding completed successfully in {:.2}s",
+            embed_elapsed.as_secs_f64()
+        );
+
+        // Write output
+        let write_start = Instant::now();
+        log::info!("Writing embedded coordinates to output file...");
+        let mut csv_w = csv::Writer::from_path(outfile).unwrap();
         let _res = write_csv_array2(&mut csv_w, &embedder.get_embedded_reindexed());
         csv_w.flush().unwrap();
+        let write_elapsed = write_start.elapsed();
+        log::info!(
+            "Output written successfully in {:.2}s",
+            write_elapsed.as_secs_f64()
+        );
 
         if let Some(q) = maybe_quality {
             log::info!(
-                "quality sampling fraction requested: {:.4}",
+                "Quality estimation requested (sampling fraction: {:.4})",
                 q.sampling_fraction
             );
             let _quality_est = embedder.get_quality_estimate_from_edge_length(100);
@@ -464,6 +564,14 @@ fn main() -> Result<()> {
     } else {
         // hierarchical approach
         let layer_proj = embedparams.get_hierarchy_layer();
+        log::info!(
+            "Using hierarchical embedding approach (projection layer: {})",
+            layer_proj
+        );
+
+        // Build HNSW graph with projection
+        let graph_start = Instant::now();
+        log::info!("Building HNSW graph with hierarchical projection...");
         let graphproj = get_kgraphproj_unifrac(
             &data_with_id,
             dist_unifrac,
@@ -471,31 +579,59 @@ fn main() -> Result<()> {
             nb_layer,
             layer_proj,
         );
+        let graph_elapsed = graph_start.elapsed();
+        log::info!(
+            "HNSW graph with projection built successfully in {:.2}s",
+            graph_elapsed.as_secs_f64()
+        );
 
+        // Perform embedding
+        let embed_start = Instant::now();
+        log::info!("Starting hierarchical embedding process...");
         let mut embedder = Embedder::from_hkgraph(&graphproj, embedparams);
         let embed_res = embedder.embed();
         if embed_res.is_err() {
-            log::error!("embedding failed");
+            log::error!("Hierarchical embedding failed");
             std::process::exit(1);
         }
-        //
-        // we can use get_embedded_reindexed as we indexed DataId contiguously in hnsw!
+        let embed_elapsed = embed_start.elapsed();
+        log::info!(
+            "Hierarchical embedding completed successfully in {:.2}s",
+            embed_elapsed.as_secs_f64()
+        );
+
+        // Write output
+        let write_start = Instant::now();
+        log::info!("Writing embedded coordinates to output file...");
+        let mut csv_w = csv::Writer::from_path(outfile).unwrap();
         let _res = write_csv_array2(&mut csv_w, &embedder.get_embedded_reindexed());
         csv_w.flush().unwrap();
+        let write_elapsed = write_start.elapsed();
+        log::info!(
+            "Output written successfully in {:.2}s",
+            write_elapsed.as_secs_f64()
+        );
 
         if let Some(q) = maybe_quality {
             log::info!(
-                "quality sampling fraction requested (hierarchical): {:.4}",
+                "Quality estimation requested (hierarchical, sampling fraction: {:.4})",
                 q.sampling_fraction
             );
             let _quality_est = embedder.get_quality_estimate_from_edge_length(100);
         }
     }
 
-    println!(
-        "Embedding done. Output written in {} ({} samples).",
-        outfile, nb_data
+    // Total time
+    let total_elapsed = start_time.elapsed();
+    log::info!("========================================");
+    log::info!("Embedding completed successfully!");
+    log::info!(
+        "Total time: {:.2}s ({:.1} minutes)",
+        total_elapsed.as_secs_f64(),
+        total_elapsed.as_secs_f64() / 60.0
     );
+    log::info!("Output written to: {} ({} samples)", outfile, nb_data);
+    log::info!("========================================");
     Ok(())
 }
 
