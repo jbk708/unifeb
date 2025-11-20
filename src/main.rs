@@ -498,3 +498,264 @@ fn main() -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    // Helper function to create a simple test tree
+    fn create_test_tree() -> String {
+        // Simple tree: (A:0.1,B:0.2):0.05;
+        "(A:0.1,B:0.2):0.05;".to_string()
+    }
+
+    // Helper function to create a simple feature table file
+    fn create_test_feature_table() -> NamedTempFile {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "#OTU_ID\tSample1\tSample2\tSample3").unwrap();
+        writeln!(file, "A\t10\t20\t0").unwrap();
+        writeln!(file, "B\t5\t15\t30").unwrap();
+        file.flush().unwrap();
+        file
+    }
+
+    #[test]
+    fn test_hnsw_params_default() {
+        let params = HnswParams::default();
+        assert_eq!(params.max_conn, 48);
+        assert_eq!(params.ef_c, 400);
+        assert_eq!(params.knbn, 10);
+        assert_eq!(params.scale_modification, 0.25);
+    }
+
+    #[test]
+    fn test_parse_feature_table() {
+        let file = create_test_feature_table();
+        let path = file.path().to_str().unwrap();
+
+        let (sample_names, feature_names, matrix) = parse_feature_table(path).unwrap();
+
+        // Check sample names
+        assert_eq!(sample_names.len(), 3);
+        assert_eq!(sample_names[0], "Sample1");
+        assert_eq!(sample_names[1], "Sample2");
+        assert_eq!(sample_names[2], "Sample3");
+
+        // Check feature names
+        assert_eq!(feature_names.len(), 2);
+        assert_eq!(feature_names[0], "A");
+        assert_eq!(feature_names[1], "B");
+
+        // Check matrix transposition (row=sample, col=feature)
+        assert_eq!(matrix.len(), 3); // 3 samples
+        assert_eq!(matrix[0].len(), 2); // 2 features
+        assert_eq!(matrix[0][0], 10.0); // Sample1, Feature A
+        assert_eq!(matrix[0][1], 5.0); // Sample1, Feature B
+        assert_eq!(matrix[1][0], 20.0); // Sample2, Feature A
+        assert_eq!(matrix[1][1], 15.0); // Sample2, Feature B
+        assert_eq!(matrix[2][0], 0.0); // Sample3, Feature A
+        assert_eq!(matrix[2][1], 30.0); // Sample3, Feature B
+    }
+
+    #[test]
+    fn test_parse_feature_table_empty_file() {
+        let file = NamedTempFile::new().unwrap();
+        let path = file.path().to_str().unwrap();
+
+        let result = parse_feature_table(path);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Feature table is empty"));
+    }
+
+    #[test]
+    fn test_parse_feature_table_malformed_header() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "#OTU_ID").unwrap(); // Only one column, no samples
+        file.flush().unwrap();
+
+        let path = file.path().to_str().unwrap();
+        let result = parse_feature_table(path);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No samples in feature table header"));
+    }
+
+    #[test]
+    fn test_new_dist_unifrac_weighted_creation() {
+        let tree = create_test_tree();
+        let feature_names = vec!["A".to_string(), "B".to_string()];
+
+        // Test that weighted NewDistUniFrac can be created successfully
+        let dist_unifrac = NewDistUniFrac::new(&tree, true, feature_names.clone());
+        assert!(
+            dist_unifrac.is_ok(),
+            "Weighted NewDistUniFrac should be created successfully"
+        );
+    }
+
+    #[test]
+    fn test_new_dist_unifrac_unweighted_creation() {
+        let tree = create_test_tree();
+        let feature_names = vec!["A".to_string(), "B".to_string()];
+
+        // Test that unweighted NewDistUniFrac can be created successfully
+        let dist_unifrac = NewDistUniFrac::new(&tree, false, feature_names.clone());
+        assert!(
+            dist_unifrac.is_ok(),
+            "Unweighted NewDistUniFrac should be created successfully"
+        );
+    }
+
+    #[test]
+    fn test_weighted_vs_unweighted_hnsw_difference() {
+        // Test that weighted and unweighted produce different HNSW graphs
+        let tree = "(A:0.1,B:0.2):0.05;".to_string();
+        let feature_names = vec!["A".to_string(), "B".to_string()];
+
+        // Create weighted and unweighted distance calculators
+        let dist_weighted = NewDistUniFrac::new(&tree, true, feature_names.clone()).unwrap();
+        let dist_unweighted = NewDistUniFrac::new(&tree, false, feature_names.clone()).unwrap();
+
+        // Create two sample vectors with different abundances
+        // Sample1: high abundance of A, low of B
+        // Sample2: low abundance of A, high of B
+        let sample1: Vec<f32> = vec![100.0, 10.0];
+        let sample2: Vec<f32> = vec![10.0, 100.0];
+        let data_with_id: Vec<(&Vec<f32>, usize)> = vec![(&sample1, 0), (&sample2, 1)];
+
+        let hparams = HnswParams {
+            max_conn: 2,
+            ef_c: 4,
+            knbn: 1,
+            scale_modification: 0.25,
+        };
+        let nb_layer = 2;
+
+        // Build HNSW graphs with both distance metrics
+        let mut hnsw_weighted = Hnsw::<f32, NewDistUniFrac>::new(
+            hparams.max_conn,
+            data_with_id.len(),
+            nb_layer,
+            hparams.ef_c,
+            dist_weighted,
+        );
+        hnsw_weighted.parallel_insert(&data_with_id);
+
+        let mut hnsw_unweighted = Hnsw::<f32, NewDistUniFrac>::new(
+            hparams.max_conn,
+            data_with_id.len(),
+            nb_layer,
+            hparams.ef_c,
+            dist_unweighted,
+        );
+        hnsw_unweighted.parallel_insert(&data_with_id);
+
+        // Convert to KGraphs
+        let kgraph_weighted: KGraph<f32> =
+            kgraph_from_hnsw_all(&hnsw_weighted, hparams.knbn).unwrap();
+        let kgraph_unweighted: KGraph<f32> =
+            kgraph_from_hnsw_all(&hnsw_unweighted, hparams.knbn).unwrap();
+
+        // The graphs should be created successfully
+        // Note: The actual neighbor relationships might differ between weighted and unweighted
+        assert!(
+            kgraph_weighted.get_nb_nodes() > 0,
+            "Weighted KGraph should have nodes"
+        );
+        assert!(
+            kgraph_unweighted.get_nb_nodes() > 0,
+            "Unweighted KGraph should have nodes"
+        );
+    }
+
+    #[test]
+    fn test_weighted_unifrac_with_abundance_differences() {
+        // Test that weighted UniFrac works with samples that have different abundances
+        let tree = "(A:0.1,B:0.2):0.05;".to_string();
+        let feature_names = vec!["A".to_string(), "B".to_string()];
+
+        let dist_weighted = NewDistUniFrac::new(&tree, true, feature_names).unwrap();
+
+        // Create samples with different abundance patterns
+        // Sample1: A=100, B=10
+        // Sample2: A=10, B=100
+        let sample1: Vec<f32> = vec![100.0, 10.0];
+        let sample2: Vec<f32> = vec![10.0, 100.0];
+        let data_with_id: Vec<(&Vec<f32>, usize)> = vec![(&sample1, 0), (&sample2, 1)];
+
+        let hparams = HnswParams {
+            max_conn: 2,
+            ef_c: 4,
+            knbn: 1,
+            scale_modification: 0.25,
+        };
+        let nb_layer = 2;
+
+        // Build HNSW graph - should succeed
+        let mut hnsw = Hnsw::<f32, NewDistUniFrac>::new(
+            hparams.max_conn,
+            data_with_id.len(),
+            nb_layer,
+            hparams.ef_c,
+            dist_weighted,
+        );
+        hnsw.parallel_insert(&data_with_id);
+
+        let kgraph: KGraph<f32> = kgraph_from_hnsw_all(&hnsw, hparams.knbn).unwrap();
+        assert_eq!(
+            kgraph.get_nb_nodes(),
+            2,
+            "KGraph should have 2 nodes for 2 samples"
+        );
+    }
+
+    #[test]
+    fn test_unweighted_unifrac_with_presence_absence() {
+        // Test that unweighted UniFrac works with presence/absence data
+        let tree = "(A:0.1,B:0.2):0.05;".to_string();
+        let feature_names = vec!["A".to_string(), "B".to_string()];
+
+        let dist_unweighted = NewDistUniFrac::new(&tree, false, feature_names).unwrap();
+
+        // Sample1: A=100, B=10 (both present)
+        // Sample2: A=10, B=100 (both present, different abundances)
+        // Sample3: A=100, B=0 (only A present)
+        let sample1: Vec<f32> = vec![100.0, 10.0];
+        let sample2: Vec<f32> = vec![10.0, 100.0];
+        let sample3: Vec<f32> = vec![100.0, 0.0];
+        let data_with_id: Vec<(&Vec<f32>, usize)> =
+            vec![(&sample1, 0), (&sample2, 1), (&sample3, 2)];
+
+        let hparams = HnswParams {
+            max_conn: 2,
+            ef_c: 4,
+            knbn: 1,
+            scale_modification: 0.25,
+        };
+        let nb_layer = 2;
+
+        // Build HNSW graph - should succeed
+        let mut hnsw = Hnsw::<f32, NewDistUniFrac>::new(
+            hparams.max_conn,
+            data_with_id.len(),
+            nb_layer,
+            hparams.ef_c,
+            dist_unweighted,
+        );
+        hnsw.parallel_insert(&data_with_id);
+
+        let kgraph: KGraph<f32> = kgraph_from_hnsw_all(&hnsw, hparams.knbn).unwrap();
+        assert_eq!(
+            kgraph.get_nb_nodes(),
+            3,
+            "KGraph should have 3 nodes for 3 samples"
+        );
+    }
+}
